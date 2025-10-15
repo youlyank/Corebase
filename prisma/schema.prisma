@@ -1,0 +1,294 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// CoreBase User Management
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String?
+  avatar            String?
+  role              UserRole  @default(USER)
+  status            UserStatus @default(ACTIVE)
+  emailVerified     Boolean   @default(false)
+  lastActiveAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  sessions          Session[]
+  apiKeys           ApiKey[]
+  files             File[]
+  projects          Project[]
+  auditLogs         AuditLog[]
+  containers        Container[]
+  templates         ContainerTemplate[]
+  quota             UserQuota?
+
+  @@map("users")
+}
+
+model Session {
+  id           String    @id @default(cuid())
+  userId       String
+  token        String    @unique
+  refreshToken String?   @unique
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model ApiKey {
+  id          String     @id @default(cuid())
+  userId      String
+  name        String
+  key         String     @unique
+  permissions String     // JSON string of permissions array
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+// Project Management
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  ownerId     String
+  status      ProjectStatus @default(ACTIVE)
+  settings    Json?         // Project-specific settings
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  owner     User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  tables    DatabaseTable[]
+  containers Container[]
+
+  @@unique([ownerId, name])
+  @@map("projects")
+}
+
+// Database Schema Management
+model DatabaseTable {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  schema      Json     // Table schema definition
+  rowCount    Int      @default(0)
+  size        BigInt   @default(0) // Size in bytes
+  status      TableStatus @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+  @@map("database_tables")
+}
+
+// File Storage
+model File {
+  id           String     @id @default(cuid())
+  userId       String
+  name         String
+  path         String     @unique
+  size         BigInt
+  mimeType     String?
+  hash         String?    // File hash for integrity
+  isPublic     Boolean    @default(false)
+  downloadUrl  String?    // Pre-signed URL
+  expiresAt    DateTime?  // For temporary URLs
+  metadata     Json?      // Additional file metadata
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("files")
+}
+
+// Authentication Providers
+model AuthProvider {
+  id          String           @id @default(cuid())
+  name        ProviderName
+  displayName String
+  enabled     Boolean          @default(true)
+  config      Json             // Provider-specific config
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([name])
+  @@map("auth_providers")
+}
+
+// Audit Logging
+model AuditLog {
+  id        String       @id @default(cuid())
+  userId    String?
+  action    AuditAction
+  resource  String       // Resource type (user, project, table, etc.)
+  resourceId String?     // Resource ID
+  details   Json?        // Additional details
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime     @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+// Container Runtime Management
+model Container {
+  id          String           @id @default(cuid())
+  name        String
+  image       String
+  status      ContainerStatus @default(STOPPED)
+  ports       String?          // JSON string of port mappings
+  environment String?          // JSON string of environment variables
+  resources   Json?            // Resource limits and usage
+  projectId   String
+  userId      String
+  createdAt   DateTime         @default(now())
+  startedAt   DateTime?
+  updatedAt   DateTime         @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("containers")
+}
+
+// Container Templates
+model ContainerTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  image       String
+  category    String   // e.g., "node", "python", "database", "static"
+  tags        String?  // JSON array of tags
+  config      Json     // Default configuration
+  isPublic    Boolean  @default(true)
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator User @relation(fields: [createdBy], references: [id])
+
+  @@map("container_templates")
+}
+
+// Runtime Metrics
+model RuntimeMetric {
+  id          String   @id @default(cuid())
+  containerId String
+  metricType  String   // e.g., "cpu", "memory", "network"
+  value       Float
+  unit        String   // e.g., "percent", "bytes", "count"
+  timestamp   DateTime @default(now())
+
+  @@map("runtime_metrics")
+}
+
+// Usage Quotas
+model UserQuota {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  maxContainers  Int      @default(5)
+  maxMemory      BigInt   @default(2147483648) // 2GB
+  maxCpu         Int      @default(50)         // 50%
+  maxStorage     BigInt   @default(10737418240) // 10GB
+  currentUsed    Json?    // Current usage statistics
+  resetAt        DateTime @default(now()) // Quota reset period
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_quotas")
+}
+
+// Enums
+enum ContainerStatus {
+  RUNNING
+  STOPPED
+  PAUSED
+  ERROR
+  STARTING
+  STOPPING
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  SUSPENDED
+}
+
+enum TableStatus {
+  ACTIVE
+  DISABLED
+  MIGRATING
+}
+
+enum ProviderName {
+  EMAIL
+  GOOGLE
+  GITHUB
+  MICROSOFT
+  APPLE
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  SIGNUP
+  UPLOAD
+  DOWNLOAD
+}
+
+// Runtime Events
+model RuntimeEvent {
+  id         String   @id @default(cuid())
+  projectId  String
+  type       String
+  payload    Json
+  createdAt  DateTime @default(now())
+}
