@@ -1,5 +1,6 @@
 // server.ts - Next.js Standalone + Socket.IO
 import { setupSocket } from '@/lib/socket';
+import { initializeCollabServer } from '@/lib/collab/server';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import next from 'next';
@@ -41,6 +42,9 @@ async function createCustomServer() {
     });
 
     setupSocket(io);
+
+    // Initialize collaboration server
+    initializeCollabServer(server);
 
     // Start the server
     server.listen(currentPort, hostname, () => {

@@ -292,3 +292,93 @@ model RuntimeEvent {
   payload    Json
   createdAt  DateTime @default(now())
 }
+
+// AI Agent Memory System
+model ProjectMemory {
+  id          String   @id @default(cuid())
+  projectId   String
+  type        MemoryType
+  key         String
+  value       Json     // Stored as JSON to handle various data types
+  embedding   Json?    // Vector embedding for semantic search (stored as JSON)
+  metadata    Json?    // Additional metadata
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectId, type, key])
+  @@map("project_memory")
+}
+
+model DevelopmentPlan {
+  id          String       @id @default(cuid())
+  projectId   String
+  goal        String
+  plan        Json         // The structured plan
+  status      PlanStatus   @default(PLANNING)
+  result      Json?        // Execution results
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("development_plans")
+}
+
+model TaskExecution {
+  id          String       @id @default(cuid())
+  planId      String
+  stepId      String
+  command     String?
+  filePath    String?
+  content     String?
+  status      TaskStatus   @default(PENDING)
+  output      String?
+  error       String?
+  startTime   DateTime
+  endTime     DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("task_executions")
+}
+
+model FileContext {
+  id          String   @id @default(cuid())
+  projectId   String
+  filePath    String
+  content     String
+  hash        String   // For change detection
+  ast         Json?    // Abstract Syntax Tree
+  embeddings  Json?    // Code embeddings for semantic search
+  metadata    Json?    // File metadata (language, size, etc.)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectId, filePath])
+  @@map("file_context")
+}
+
+// Enums for Memory System
+enum MemoryType {
+  PROJECT_GOAL      // High-level project objectives
+  FILE_RELATION     // Relationships between files
+  CODE_PATTERN      // Common code patterns
+  ARCHITECTURE      // Architecture decisions
+  DEPENDENCY        // Project dependencies
+  CONTEXT           // General context
+  HISTORY           // Historical actions
+}
+
+enum PlanStatus {
+  PLANNING
+  EXECUTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TaskStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}

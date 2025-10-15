@@ -1,14 +1,31 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Code, Loader2, Check, X, Terminal, Zap, Lightbulb } from "lucide-react"
+import { Code, Loader2, Check, X, Terminal, Zap, Lightbulb, Users, Plus, Brain } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { aiCompletionService, CompletionItem, CompletionResult } from "@/lib/ai/completion"
+import { EditorCollab } from "@/components/EditorCollab"
+import AgenticDeveloper from "@/components/AgenticDeveloper"
+
+interface CompletionItem {
+  label: string;
+  kind: 'function' | 'variable' | 'class' | 'method' | 'property' | 'keyword' | 'snippet';
+  detail?: string;
+  documentation?: string;
+  insertText: string;
+  priority: number;
+  source: 'ai' | 'local' | 'cache';
+}
+
+interface CompletionResult {
+  items: CompletionItem[];
+  processingTime: number;
+}
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState("ai-completion")
   const [code, setCode] = useState("// Welcome to AI Code Completion Demo\n// Start typing to see AI-powered suggestions\n\nfunction hello() {\n  console.log('Hello, World!');\n}")
   const [language, setLanguage] = useState("javascript")
   const [completions, setCompletions] = useState<CompletionItem[]>([])
@@ -17,6 +34,19 @@ export default function Home() {
   const [showCompletions, setShowCompletions] = useState(false)
   const [cursorPosition, setCursorPosition] = useState({ line: 0, column: 0 })
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Collaboration state
+  const [roomId, setRoomId] = useState("")
+  const [userId, setUserId] = useState("")
+  const [userName, setUserName] = useState("")
+  const [collabContent, setCollabContent] = useState("// Collaborative Editor Demo\n// Start typing and share this room with others!\n\nfunction collaborate() {\n  console.log('Working together!');\n}")
+
+  // Initialize collaboration user info
+  useEffect(() => {
+    setUserId(`user_${Math.random().toString(36).substr(2, 9)}`)
+    setUserName(`User ${Math.floor(Math.random() * 1000)}`)
+    setRoomId(`room_${Math.random().toString(36).substr(2, 6)}`)
+  }, [])
 
   const handleCodeChange = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newCode = e.target.value
@@ -46,14 +76,26 @@ export default function Home() {
     setShowCompletions(false)
     
     try {
-      const result: CompletionResult = await aiCompletionService.getCompletions({
-        filePath: `demo.${language}`,
-        language,
-        position: { line, column },
-        prefix: code.substring(0, code.length),
-        suffix: "",
-        entireContent: code
+      const response = await fetch('/api/completion', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filePath: `demo.${language}`,
+          language,
+          position: { line, column },
+          prefix: code.substring(0, code.length),
+          suffix: "",
+          entireContent: code
+        })
       })
+      
+      if (!response.ok) {
+        throw new Error('Failed to get completions')
+      }
+      
+      const result: CompletionResult = await response.json()
       
       setCompletions(result.items.slice(0, 8)) // Limit to 8 suggestions
       setSelectedCompletion(0)
@@ -62,9 +104,70 @@ export default function Home() {
       }
     } catch (error) {
       console.error('Failed to get completions:', error)
+      // Fallback to local completions
+      const fallbackCompletions = getLocalCompletions(code, line, column)
+      setCompletions(fallbackCompletions.slice(0, 8))
+      setSelectedCompletion(0)
+      if (fallbackCompletions.length > 0) {
+        setShowCompletions(true)
+      }
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const getLocalCompletions = (code: string, line: number, column: number): CompletionItem[] => {
+    const completions: CompletionItem[] = []
+    const lines = code.split('\n')
+    const currentLine = lines[line] || ''
+    
+    switch (language) {
+      case 'javascript':
+      case 'typescript':
+        completions.push(...getJavaScriptCompletions(currentLine))
+        break
+      case 'python':
+        completions.push(...getPythonCompletions(currentLine))
+        break
+    }
+    
+    return completions
+  }
+
+  const getJavaScriptCompletions = (prefix: string): CompletionItem[] => {
+    const patterns = [
+      { label: 'console.log()', insertText: 'console.log()', kind: 'method' as const },
+      { label: 'const ', insertText: 'const ', kind: 'keyword' as const },
+      { label: 'let ', insertText: 'let ', kind: 'keyword' as const },
+      { label: 'function ', insertText: 'function ', kind: 'keyword' as const },
+      { label: 'async function ', insertText: 'async function ', kind: 'keyword' as const },
+      { label: 'await ', insertText: 'await ', kind: 'keyword' as const },
+      { label: 'return ', insertText: 'return ', kind: 'keyword' as const },
+      { label: 'if ()', insertText: 'if ()', kind: 'snippet' as const },
+      { label: 'for ()', insertText: 'for ()', kind: 'snippet' as const }
+    ]
+
+    return patterns.map(pattern => ({
+      ...pattern,
+      priority: 70,
+      source: 'local' as const
+    }))
+  }
+
+  const getPythonCompletions = (prefix: string): CompletionItem[] => {
+    const patterns = [
+      { label: 'def ', insertText: 'def ', kind: 'keyword' as const },
+      { label: 'class ', insertText: 'class ', kind: 'keyword' as const },
+      { label: 'import ', insertText: 'import ', kind: 'keyword' as const },
+      { label: 'print()', insertText: 'print()', kind: 'function' as const },
+      { label: 'self', insertText: 'self', kind: 'variable' as const }
+    ]
+
+    return patterns.map(pattern => ({
+      ...pattern,
+      priority: 70,
+      source: 'local' as const
+    }))
   }
 
   const applyCompletion = (completion: CompletionItem) => {
@@ -114,6 +217,11 @@ export default function Home() {
     }
   }
 
+  const generateNewRoom = () => {
+    setRoomId(`room_${Math.random().toString(36).substr(2, 6)}`)
+    setCollabContent("// Collaborative Editor Demo\n// Start typing and share this room with others!\n\nfunction collaborate() {\n  console.log('Working together!');\n}")
+  }
+
   const examples = {
     javascript: `// JavaScript Example
 function calculateSum(numbers) {
@@ -144,20 +252,38 @@ function processUser(user: User) {
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-2 mb-4">
             <Zap className="w-8 h-8 text-blue-600" />
-            <h1 className="text-4xl font-bold text-gray-900">AI Code Completion</h1>
+            <h1 className="text-4xl font-bold text-gray-900">AI-Powered Development Suite</h1>
           </div>
           <p className="text-lg text-gray-600 mb-2">
-            Experience intelligent code completion powered by AI
+            Experience intelligent code completion and real-time collaboration
           </p>
           <p className="text-sm text-gray-500">
-            Start typing in the editor below to see AI-powered suggestions
+            Powered by AI + Yjs CRDT + Socket.IO
           </p>
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Code Editor */}
-          <div className="lg:col-span-2">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="ai-completion" className="flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              AI Completion
+            </TabsTrigger>
+            <TabsTrigger value="collaboration" className="flex items-center gap-2">
+              <Users className="w-4 h-4" />
+              Real-time Collab
+            </TabsTrigger>
+            <TabsTrigger value="agentic" className="flex items-center gap-2">
+              <Brain className="w-4 h-4" />
+              AI Agent
+            </TabsTrigger>
+          </TabsList>
+
+          {/* AI Completion Tab */}
+          <TabsContent value="ai-completion" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Code Editor */}
+              <div className="lg:col-span-2">
             <Card className="h-full">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -359,8 +485,74 @@ function processUser(user: User) {
                 </CardContent>
               </Card>
             )}
+            </div>
           </div>
-        </div>
+          </TabsContent>
+
+          {/* Collaboration Tab */}
+          <TabsContent value="collaboration" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-5 h-5 text-green-600" />
+                    <CardTitle>Real-time Collaborative Editor</CardTitle>
+                  </div>
+                  <Button onClick={generateNewRoom} size="sm">
+                    <Plus className="w-4 h-4 mr-2" />
+                    New Room
+                  </Button>
+                </div>
+                <CardDescription>
+                  Share this room with others to collaborate in real-time using CRDT technology
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Room ID:</p>
+                      <p className="text-lg font-mono font-bold text-blue-600">{roomId}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Your Name:</p>
+                      <p className="text-lg font-mono font-bold text-green-600">{userName}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Share the Room ID with others to collaborate together in real-time!
+                  </p>
+                </div>
+
+                <EditorCollab
+                  roomId={roomId}
+                  userId={userId}
+                  userName={userName}
+                  initialContent={collabContent}
+                  onContentChange={setCollabContent}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Agentic Developer Tab */}
+          <TabsContent value="agentic" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Brain className="w-5 h-5 text-purple-600" />
+                  <CardTitle>AI-Powered Development Agent</CardTitle>
+                </div>
+                <CardDescription>
+                  Describe your goals and let the AI agent plan, execute, and manage development tasks automatically
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <AgenticDeveloper />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )

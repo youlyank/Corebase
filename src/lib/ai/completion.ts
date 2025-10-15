@@ -29,7 +29,7 @@ export interface CompletionResult {
   processingTime: number;
 }
 
-export class AICompletionService {
+class AICompletionService {
   private zai: ZAI | null = null;
   private cache = new Map<string, CompletionResult>();
   private cacheTimeout = 5 * 60 * 1000; // 5 minutes
@@ -195,4 +195,7 @@ Provide relevant code completions.
   }
 }
 
-export const aiCompletionService = new AICompletionService();
+// Create a singleton instance for server-side use only
+const aiCompletionService = new AICompletionService();
+
+export { aiCompletionService };
