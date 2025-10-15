@@ -7,41 +7,46 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import {
   Play,
-  Square,
   Terminal,
-  Code,
   GitBranch,
-  Settings,
   AlertCircle,
-  CheckCircle,
+  CheckCircle2,
   Clock,
   Zap,
   Brain,
   Target,
-  Loader2,
-  FileText,
-  CommandLine,
-  Search,
-  CheckCircle2
+  Loader2
 } from 'lucide-react';
-import { agenticPlanner, DevelopmentPlan, TaskStep } from '@/lib/agentic-planner';
 
-interface Task {
+// Types for the client-side
+interface TaskStep {
   id: string;
-  command: string;
-  status: 'running' | 'completed' | 'failed';
-  output: string;
+  description: string;
+  type: 'command' | 'file_edit' | 'analysis' | 'verification';
+  command?: string;
+  filePath?: string;
+  content?: string;
+  dependencies?: string[];
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  result?: any;
   error?: string;
-  startTime: Date;
-  endTime?: Date;
+}
+
+interface DevelopmentPlan {
+  id: string;
+  goal: string;
+  steps: TaskStep[];
+  estimatedTime: number;
+  complexity: 'low' | 'medium' | 'high';
+  status: 'planning' | 'executing' | 'completed' | 'failed';
+  currentStep: number;
+  progress: number;
 }
 
 export default function AgenticDeveloper() {
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [activePlan, setActivePlan] = useState<DevelopmentPlan | null>(null);
   const [command, setCommand] = useState('');
   const [goal, setGoal] = useState('');
@@ -57,16 +62,6 @@ export default function AgenticDeveloper() {
   }, [output]);
 
   const executeCommand = async (cmd: string) => {
-    const taskId = `task_${Date.now()}`;
-    const newTask: Task = {
-      id: taskId,
-      command: cmd,
-      status: 'running',
-      output: '',
-      startTime: new Date()
-    };
-
-    setTasks(prev => [...prev, newTask]);
     setIsExecuting(true);
     setOutput(prev => [...prev, `$ ${cmd}`, '']);
 
@@ -80,29 +75,11 @@ export default function AgenticDeveloper() {
       const result = await response.json();
 
       if (result.success) {
-        setTasks(prev => prev.map(t => 
-          t.id === taskId 
-            ? { ...t, status: 'completed', output: result.result.stdout, endTime: new Date() }
-            : t
-        ));
-        
         setOutput(prev => [...prev.slice(0, -1), result.result.stdout]);
       } else {
-        setTasks(prev => prev.map(t => 
-          t.id === taskId 
-            ? { ...t, status: 'failed', error: result.error, endTime: new Date() }
-            : t
-        ));
-        
         setOutput(prev => [...prev.slice(0, -1), `Error: ${result.error}`]);
       }
     } catch (error) {
-      setTasks(prev => prev.map(t => 
-        t.id === taskId 
-          ? { ...t, status: 'failed', error: error instanceof Error ? error.message : 'Unknown error', endTime: new Date() }
-          : t
-      ));
-      
       setOutput(prev => [...prev.slice(0, -1), `Error: ${error instanceof Error ? error.message : 'Unknown error'}`]);
     } finally {
       setIsExecuting(false);
@@ -116,25 +93,34 @@ export default function AgenticDeveloper() {
     setOutput(prev => [...prev, `🎯 Goal: ${goal}`, '', '🤖 AI Agent is planning...', '']);
 
     try {
-      // Initialize project memory if needed
-      await agenticPlanner.initializeProjectMemory();
-      
-      const plan = await agenticPlanner.createPlan(goal);
-      setActivePlan(plan);
-      setIsPlanning(false);
-      
-      setOutput(prev => [...prev.slice(0, -1), `📋 Plan created with ${plan.steps.length} steps:`, '']);
-      
-      plan.steps.forEach((step, index) => {
-        const icon = getStepIcon(step.type);
-        setOutput(prev => [...prev, `${index + 1}. ${icon} ${step.description}`]);
+      const response = await fetch('/api/agentic/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ goal, projectId: 'default-project' })
       });
-      
-      setOutput(prev => [...prev, '', '🚀 Starting execution...', '']);
 
-      // Execute the plan
-      await executePlan(plan);
+      const result = await response.json();
       
+      if (result.success) {
+        setActivePlan(result.plan);
+        setIsPlanning(false);
+        
+        setOutput(prev => [...prev.slice(0, -1), `📋 Plan created with ${result.plan.steps.length} steps:`, '']);
+        
+        result.plan.steps.forEach((step: TaskStep, index: number) => {
+          const icon = getStepIcon(step.type);
+          setOutput(prev => [...prev, `${index + 1}. ${icon} ${step.description}`]);
+        });
+        
+        setOutput(prev => [...prev, '', '🚀 Starting execution...', '']);
+
+        // Execute the plan
+        await executePlan(result.plan);
+        
+      } else {
+        setIsPlanning(false);
+        setOutput(prev => [...prev.slice(0, -1), `❌ Planning failed: ${result.error}`, '']);
+      }
     } catch (error) {
       setIsPlanning(false);
       setOutput(prev => [...prev.slice(0, -1), `❌ Planning failed: ${error instanceof Error ? error.message : 'Unknown error'}`, '']);
@@ -147,19 +133,6 @@ export default function AgenticDeveloper() {
     for (let i = 0; i < plan.steps.length; i++) {
       const step = plan.steps[i];
       
-      // Check if dependencies are met
-      if (step.dependencies && step.dependencies.length > 0) {
-        const depsMet = step.dependencies.every(depId => {
-          const depStep = plan.steps.find(s => s.id === depId);
-          return depStep?.status === 'completed';
-        });
-        
-        if (!depsMet) {
-          setOutput(prev => [...prev, `⏭️  Skipping step ${i + 1}: Dependencies not met`]);
-          continue;
-        }
-      }
-      
       setActivePlan(prev => prev ? { ...prev, currentStep: i, progress: (i / plan.steps.length) * 100 } : null);
       
       setOutput(prev => [...prev, `🚀 Step ${i + 1}/${plan.steps.length}: ${step.description}`, '']);
@@ -168,26 +141,43 @@ export default function AgenticDeveloper() {
       step.status = 'running';
       setActivePlan(prev => prev ? { ...prev } : null);
       
-      const result = await agenticPlanner.executeStep(step);
-      
-      if (result.success) {
-        step.status = 'completed';
-        step.result = result.result;
-        setOutput(prev => [...prev.slice(0, -1), `✅ Step completed successfully`]);
+      try {
+        // Execute step via API
+        const response = await fetch('/api/agentic/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            planId: plan.id, 
+            stepId: step.id,
+            projectId: 'default-project'
+          })
+        });
+
+        const result = await response.json();
         
-        if (result.result) {
-          if (typeof result.result === 'string') {
-            setOutput(prev => [...prev, result.result]);
-          } else if (result.result.stdout) {
-            setOutput(prev => [...prev, result.result.stdout]);
+        if (result.success) {
+          step.status = 'completed';
+          step.result = result.result;
+          setOutput(prev => [...prev.slice(0, -1), `✅ Step completed successfully`]);
+          
+          if (result.result?.output) {
+            setOutput(prev => [...prev, result.result.output]);
           }
+        } else {
+          step.status = 'failed';
+          step.error = result.error;
+          setOutput(prev => [...prev.slice(0, -1), `❌ Step failed: ${result.error}`]);
+          
+          // Stop execution on failure
+          setActivePlan(prev => prev ? { ...prev, status: 'failed' } : null);
+          setOutput(prev => [...prev, '', '🛑 Execution stopped due to failure', '']);
+          return;
         }
-      } else {
+      } catch (error) {
         step.status = 'failed';
-        step.error = result.error;
-        setOutput(prev => [...prev.slice(0, -1), `❌ Step failed: ${result.error}`]);
+        step.error = error instanceof Error ? error.message : 'Unknown error';
+        setOutput(prev => [...prev.slice(0, -1), `❌ Step failed: ${step.error}`]);
         
-        // Stop execution on failure
         setActivePlan(prev => prev ? { ...prev, status: 'failed' } : null);
         setOutput(prev => [...prev, '', '🛑 Execution stopped due to failure', '']);
         return;
@@ -197,7 +187,7 @@ export default function AgenticDeveloper() {
       setActivePlan(prev => prev ? { ...prev } : null);
       
       // Small delay between steps
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
     setActivePlan(prev => prev ? { ...prev, status: 'completed', progress: 100 } : null);
@@ -225,8 +215,8 @@ export default function AgenticDeveloper() {
 
   const quickActions = [
     { icon: Play, label: 'Run Dev', command: 'npm run dev' },
-    { icon: Code, label: 'Build', command: 'npm run build' },
-    { icon: Terminal, label: 'Test', command: 'npm test' },
+    { icon: Terminal, label: 'Build', command: 'npm run build' },
+    { icon: GitBranch, label: 'Test', command: 'npm test' },
     { icon: GitBranch, label: 'Git Commit', command: 'git add . && git commit -m "Update project"' },
   ];
 
