@@ -1,16 +1,43 @@
 {
-  "name": "nextjs_tailwind_shadcn_ts",
-  "version": "0.1.0",
+  "name": "corebase-ai-platform",
+  "version": "1.0.0",
+  "description": "AI-Powered Development Suite with Container Orchestration",
   "private": true,
+  "keywords": ["ai", "development", "containers", "collaboration", "nextjs", "typescript"],
+  "author": "CoreBase Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/youlyank/Corebase.git"
+  },
+  "homepage": "https://github.com/youlyank/Corebase#readme",
+  "bugs": {
+    "url": "https://github.com/youlyank/Corebase/issues"
+  },
   "scripts": {
     "dev": "nodemon --exec \"npx tsx server.ts\" --watch server.ts --watch src --ext ts,tsx,js,jsx 2>&1 | tee dev.log",
     "build": "next build",
     "start": "NODE_ENV=production tsx server.ts 2>&1 | tee server.log",
     "lint": "next lint",
+    "lint:fix": "next lint --fix",
+    "type-check": "tsc --noEmit",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "docker:build": "docker build -t corebase:latest .",
+    "docker:run": "docker run -p 3000:3000 --env-file .env corebase:latest",
+    "docker:dev": "docker-compose -f docker-compose.yml up -d",
+    "docker:prod": "docker-compose -f docker-compose.prod.yml up -d",
+    "docker:down": "docker-compose down",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "postinstall": "prisma generate",
+    "setup": "chmod +x setup.sh && ./setup.sh",
+    "deploy": "npm run build && npm run start"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
